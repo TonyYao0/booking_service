@@ -17,3 +17,18 @@ class UserResponse(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class ServiceBase(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    duration_minutes: int = Field(..., gt=0, lt=480)  # от 1 минуты до 8 часов
+    price: int = Field(..., ge=0)  # цена не может быть отрицательной
+
+class ServiceCreate(ServiceBase):
+    pass
+
+class ServiceResponse(ServiceBase):
+    id: int
+
+    class Config:
+        from_attributes = True

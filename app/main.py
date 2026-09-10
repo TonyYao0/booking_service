@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.database import get_db
-from app.models import User
-from app.schemas import UserCreate, UserResponse
+from app.models import User, Service
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse
 from app.auth import get_password_hash
 
 app = FastAPI(
@@ -40,3 +40,25 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
     await db.refresh(new_user)
     
     return new_user
+
+# Эндпоинт добавления новой услуги (POST)
+@app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
+async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db)):
+    new_service = Service(
+        name=service_data.name,
+        duration_minutes=service_data.duration_minutes,
+        price=service_data.price
+    )
+    db.add(new_service)
+    await db.commit()
+    await db.refresh(new_service)
+    return new_service
+
+
+# Эндпоинт получения списка всех услуг (GET)
+@app.get("/services", response_model=list[ServiceResponse])
+async def get_services(db: AsyncSession = Depends(get_db)):
+    query = select(Service)
+    result = await db.execute(query)
+    services = result.scalars().all()
+    return services
