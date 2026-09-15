@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from app.models import UserRole
+from datetime import datetime
 
 # Базовые поля пользователя
 class UserBase(BaseModel):
@@ -32,3 +33,23 @@ class ServiceResponse(ServiceBase):
 
     class Config:
         from_attributes = True
+
+# Базовые поля
+class BookingBase(BaseModel):
+    client_id: int
+    master_id: int
+    service_id: int
+    start_time: datetime
+
+class BookingCreate(BookingBase):
+    pass
+
+class BookingResponse(BookingBase):
+    id: int
+    end_time: datetime
+    status:str
+
+    class Config:
+        from_attributes = True
+
+

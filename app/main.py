@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from datetime import timedelta
 
 from app.database import get_db
-from app.models import User, Service
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse
+from app.models import User, Service, Booking
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse
 from app.auth import get_password_hash
 
 app = FastAPI(
@@ -62,3 +63,40 @@ async def get_services(db: AsyncSession = Depends(get_db)):
     result = await db.execute(query)
     services = result.scalars().all()
     return services
+
+# ЭНДПОИНТ СОЗДАНИЯ ЗАПИСИ (БРОНИРОВАНИЯ)
+@app.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
+async def create_booking(booking_data: BookingCreate, db: AsyncSession = Depends(get_db)):
+    service_query = select(Service).where(Service.id == booking_data.service_id)
+    service_result = await db.execute(service_query)
+    service = service_result.scalar_one_or_none()
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Указанная услуга не найдена"
+        )
+
+    calculated_end_time = booking_data.start_time + timedelta(minutes=service.duration_minutes)
+
+    new_booking = Booking(
+        client_id=booking_data.client_id,
+        master_id=booking_data.master_id,
+        service_id=booking_data.service_id,
+        start_time=booking_data.start_time,
+        end_time=calculated_end_time,
+        status="created"
+    )
+
+    db.add(new_booking)
+    await db.commit()
+
+    return BookingResponse(
+        client_id=new_booking.client_id,
+        master_id=new_booking.master_id,
+        service_id=new_booking.service_id,
+        start_time=new_booking.start_time,
+        end_time=calculated_end_time,
+        id=new_booking.id or 1,
+        status=new_booking.status
+    )
