@@ -5,8 +5,8 @@ from datetime import timedelta
 
 from app.database import get_db
 from app.models import User, Service, Booking
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse
-from app.auth import get_password_hash
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token
+from app.auth import get_password_hash, verify_password, create_access_token
 
 app = FastAPI(
     title="Сервис по бронированию",
@@ -100,3 +100,18 @@ async def create_booking(booking_data: BookingCreate, db: AsyncSession = Depends
         id=new_booking.id or 1,
         status=new_booking.status
     )
+
+@app.post("/auth/login", response_model=Token)
+async def login_for_access_token(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
+    query = select(User).where(User.email ==login_data.email)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    return{"access_token": access_token, "token_type": "bearer"}
