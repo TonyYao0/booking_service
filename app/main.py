@@ -1,12 +1,12 @@
+from datetime import timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import timedelta
-
+from fastapi.security import OAuth2PasswordRequestForm
 from app.database import get_db
 from app.models import User, Service, Booking
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse
-from app.auth import get_password_hash
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token
+from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
 
 app = FastAPI(
     title="Сервис по бронированию",
@@ -14,6 +14,26 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# 1. ЗАВИСИМОСТЬ ДЛЯ ПРОВЕРКИ ТОКЕНА (ТЕПЕРЬ НАВЕРХУ)
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Не удалось валидировать учетные данные",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    token_data = verify_access_token(token, credentials_exception)
+
+    query = select(User).where(User.id == token_data["user_id"])
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise credentials_exception
+
+    return user
+
+
+# 2. ПУБЛИЧНЫЕ ЭНДПОИНТЫ API
 @app.get("/")
 async def root():
     return {"status": "working", "message": "Добро пожаловать в API!"}
@@ -42,7 +62,21 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
     
     return new_user
 
-# Эндпоинт добавления новой услуги (POST)
+@app.post("/auth/login", response_model=Token)
+async def login_for_access_token(login_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    query = select(User).where(User.email == login_data.username)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    return {"access_token": access_token, "token_type": "bearer"}
+
 @app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db)):
     new_service = Service(
@@ -55,8 +89,6 @@ async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends
     await db.refresh(new_service)
     return new_service
 
-
-# Эндпоинт получения списка всех услуг (GET)
 @app.get("/services", response_model=list[ServiceResponse])
 async def get_services(db: AsyncSession = Depends(get_db)):
     query = select(Service)
@@ -64,9 +96,14 @@ async def get_services(db: AsyncSession = Depends(get_db)):
     services = result.scalars().all()
     return services
 
-# ЭНДПОИНТ СОЗДАНИЯ ЗАПИСИ (БРОНИРОВАНИЯ)
+
+# 3. ЗАЩИЩЕННЫЙ ЭНДПОИНТ БРОНИРОВАНИЯ
 @app.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
-async def create_booking(booking_data: BookingCreate, db: AsyncSession = Depends(get_db)):
+async def create_booking(
+    booking_data: BookingCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     service_query = select(Service).where(Service.id == booking_data.service_id)
     service_result = await db.execute(service_query)
     service = service_result.scalar_one_or_none()
@@ -80,7 +117,7 @@ async def create_booking(booking_data: BookingCreate, db: AsyncSession = Depends
     calculated_end_time = booking_data.start_time + timedelta(minutes=service.duration_minutes)
 
     new_booking = Booking(
-        client_id=booking_data.client_id,
+        client_id=current_user.id,
         master_id=booking_data.master_id,
         service_id=booking_data.service_id,
         start_time=booking_data.start_time,
