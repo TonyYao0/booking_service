@@ -163,5 +163,17 @@ async def get_my_bookings(
     query = select(Booking).where(Booking.client_id == current_user.id)
     result = await db.execute(query)
     bookings = result.scalars().all()
-    
+    return bookings
+
+# ЭНДПОИНТ ПОЛУЧЕНИЯ РАСПИСАНИЯ ДЛЯ ТЕКУЩЕГО МАСТЕРА
+@app.put("/bookings/master", response_model=list[BookingResponse])
+async def get_master_booking(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+     # Делаем SQL-запрос: "Выбери все записи из таблицы bookings, где master_id равен ID текущего вошедшего пользователя"
+    query = select(Booking).where(Booking.master_id == current_user.id)
+    result = await db.execute(query)
+
+    bookings = result.scalars().all()
     return bookings
