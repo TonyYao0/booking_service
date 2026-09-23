@@ -3,11 +3,11 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi.security import OAuth2PasswordRequestForm
+
 from app.database import get_db
 from app.models import User, Service, Booking
 from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token
 from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
-from app.auth import get_password_hash, verify_password, create_access_token
 
 
 app = FastAPI(
@@ -33,6 +33,23 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         raise credentials_exception
 
     return user
+
+# КЛАСС ДЛЯ ПРОВЕРКИ РОЛЕЙ ПОЛЬЗОВАТЕЛЯ
+class RoleChecker:
+    def __init__(self, allowed_roles: list[str]):
+        self.allowed_roles = allowed_roles
+
+    def __call__(self, current_user: User = Depends(get_current_user)):
+        user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+        if "." in user_role:
+            user_role = user_role.split(".")[-1]
+            
+        if user_role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="У вас недостаточно прав для выполнения этого действия"
+            )
+        return current_user
 
 
 # 2. ПУБЛИЧНЫЕ ЭНДПОИНТЫ API
@@ -80,7 +97,7 @@ async def login_for_access_token(login_data: OAuth2PasswordRequestForm = Depends
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
-async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db)):
+async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(RoleChecker(["admin", "master"]))):
     new_service = Service(
         name=service_data.name,
         duration_minutes=service_data.duration_minutes,
