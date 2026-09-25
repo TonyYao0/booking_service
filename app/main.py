@@ -258,3 +258,31 @@ async def delete_service(
     await db.delete(service)
     await db.commit()
     return None
+
+@app.get("/bookings/{booking_id}", response_model=BookingResponse)
+async def get_booking_details(
+    booking_id:int,
+    db : AsyncSession = Depends(get_db),
+    current_user: User =Depends(get_current_user)
+):
+    query = select(Booking).where(Booking.id == booking_id)
+    result = await db.execute(query)
+    booking = result.scalar_one_or_none()
+
+
+
+    if not booking:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Букинга с id {id} нет в базе данных"
+        )
+    user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if "." in user_role:
+        user_role = user_role.split(".")[-1]
+
+    if user_role == "client" and booking.client_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас недостаточно прав для просмотра этой записи."
+        )
+    return booking
