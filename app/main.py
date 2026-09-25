@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.database import get_db
 from app.models import User, Service, Booking
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token, BookingStatusUpdate
 from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
 
 
@@ -285,4 +285,27 @@ async def get_booking_details(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="У вас недостаточно прав для просмотра этой записи."
         )
+    return booking
+
+@app.patch("/bookings/{booking_id}/status", response_model=BookingResponse)
+async def update_booking_status (
+    booking_id: int,
+    status_data: BookingStatusUpdate,
+    db:AsyncSession = Depends(get_db),
+    current_user:User = Depends(get_current_user)
+):
+    query = select(Booking).where(Booking.id == booking_id)
+    result = await db.execute(query)
+    booking  = result.scalar_one_or_none()
+
+    if not booking:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Указанная бронь не найдена"
+            )
+    booking.status = status_data.status
+
+    await db.commit()
+    await db.refresh(booking)
+
     return booking
