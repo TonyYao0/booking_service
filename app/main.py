@@ -194,3 +194,48 @@ async def get_master_booking(
 
     bookings = result.scalars().all()
     return bookings
+
+@app.delete('/delete/{booking_id}', status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_booking(
+    booking_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = select(Booking).where(Booking.id == booking_id)
+    result = await db.execut(query)
+    booking = result.scalar_one_or_non()
+
+    if not booking:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUN,
+            detail="Указано не верное бронирование"
+        )
+    await db.delet(booking)
+    await db.commit()
+
+    return None
+
+@app.patch("/services/{service_id}", response_model=ServiceResponse)
+async def update_services (
+    service_id: int,
+    service_data: ServiceCreate,
+    db:AsyncSession = Depends (get_db),
+    current_user: User = Depends(RoleChecker(["admin", "master"]))
+):
+    query = select(Service).where(Service.id==service_id)
+    result = await db.execute(query)
+    service=result.scalar_one_or_none()
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Не удалось найти указанную запись'
+        )
+    service.name = service_data.name
+    service.price = service_data.price
+    service.duration_minutes = service_data.duration_minutes
+
+    await db.commit()
+    await db.refresh(service)
+
+    return service
