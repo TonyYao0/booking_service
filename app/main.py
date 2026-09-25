@@ -309,3 +309,14 @@ async def update_booking_status (
     await db.refresh(booking)
 
     return booking
+
+@app.get("/bookings/", response_model=list[BookingResponse])
+async def get_all_bookins(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"]))
+):
+    query = select(Booking)
+    result = await db.execute(query)
+    bookings = result.scalars().all()
+
+    return bookings
