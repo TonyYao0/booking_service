@@ -239,3 +239,22 @@ async def update_services (
     await db.refresh(service)
 
     return service
+
+@app.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_service(
+    service_id: int,
+    db: AsyncSession = Depends (get_db),
+    current_user: User = Depends(RoleChecker(["admin", "master"]))
+):
+    query = select(Service).where(Service.id == service_id)
+    result = await db.execute(query)
+    service = result.scalar_one_or_none()
+
+    if not service:
+        raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail='Не удалось найти указанную запись'
+                )
+    await db.delete(service)
+    await db.commit()
+    return None
