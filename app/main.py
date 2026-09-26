@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -123,6 +123,15 @@ async def create_booking(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    current_time = datetime.now(timezone.utc)
+    booking_start = booking_data.start_time.replace(tzinfo=timezone.utc)
+
+    if booking_start < current_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Невозможно создать бронирование на прошедшее время"
+        )
+    
     service_query = select(Service).where(Service.id == booking_data.service_id)
     service_result = await db.execute(service_query)
     service = service_result.scalar_one_or_none()
@@ -310,7 +319,7 @@ async def update_booking_status (
 
     return booking
 
-@app.get("/bookings/", response_model=list[BookingResponse])
+@app.get("/bookings", response_model=list[BookingResponse])
 async def get_all_bookins(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(RoleChecker(["admin"]))
@@ -320,3 +329,4 @@ async def get_all_bookins(
     bookings = result.scalars().all()
 
     return bookings
+
