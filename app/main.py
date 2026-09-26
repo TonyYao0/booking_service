@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi.security import OAuth2PasswordRequestForm
+from typing import Optional
 
 from app.database import get_db
 from app.models import User, Service, Booking
@@ -103,24 +104,26 @@ async def get_current_user_principal(
     return current_user
 
 
-@app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
-async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(RoleChecker(["admin", "master"]))):
-    new_service = Service(
-        name=service_data.name,
-        duration_minutes=service_data.duration_minutes,
-        price=service_data.price
-    )
-    db.add(new_service)
-    await db.commit()
-    await db.refresh(new_service)
-    return new_service
-
 @app.get("/services", response_model=list[ServiceResponse])
-async def get_services(db: AsyncSession = Depends(get_db)):
+async def get_servises(
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    db: AsyncSession = Depends(get_db)
+):
     query = select(Service)
+
+    if min_price is not None:
+        query = query.where(Service.price >= min_price)
+
+    if max_price is not None:
+        query = query.where(Service.price <= max_price)
+
     result = await db.execute(query)
     services = result.scalars().all()
     return services
+
+
+
 
 
 # 3. ЗАЩИЩЕННЫЙ ЭНДПОИНТ БРОНИРОВАНИЯ
