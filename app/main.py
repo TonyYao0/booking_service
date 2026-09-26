@@ -96,6 +96,13 @@ async def login_for_access_token(login_data: OAuth2PasswordRequestForm = Depends
     access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
     return {"access_token": access_token, "token_type": "bearer"}
 
+@app.get('/auth/me', response_model=UserResponse)
+async def get_current_user_principal(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
+
+
 @app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_service(service_data: ServiceCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(RoleChecker(["admin", "master"]))):
     new_service = Service(
@@ -144,6 +151,23 @@ async def create_booking(
 
     calculated_end_time = booking_data.start_time + timedelta(minutes=service.duration_minutes)
 
+    conflict_query = select(Booking).where(
+        Booking.master_id == booking_data.master_id,
+        Booking.status != 'cancelled',
+        booking_data.start_time <= Booking.end_time,
+        calculated_end_time > Booking.start_time
+    )
+
+    conflict_results = await db.execute(conflict_query)
+    existing_conflicts = conflict_results.scalar_one_or_none()
+
+    if existing_conflicts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Выбранное время уже занято у этого мастера другим бронированием"
+        )
+
+     # Создаем новую запись в таблице Bookings
     new_booking = Booking(
         client_id=current_user.id,
         master_id=booking_data.master_id,
