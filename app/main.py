@@ -210,10 +210,13 @@ async def login_for_access_token(login_data: UserLogin, db: AsyncSession = Depen
 
 @app.get("/bookings/my", response_model=list[BookingResponse])
 async def get_my_bookings(
+    limit: int =20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    query = select(Booking).where(Booking.client_id == current_user.id)
+    query = select(Booking).where(Booking.client_id == current_user.id).limit(limit).offset(offset)
+
     result = await db.execute(query)
     bookings = result.scalars().all()
     return bookings
@@ -221,11 +224,13 @@ async def get_my_bookings(
 # ЭНДПОИНТ ПОЛУЧЕНИЯ РАСПИСАНИЯ ДЛЯ ТЕКУЩЕГО МАСТЕРА
 @app.put("/bookings/master", response_model=list[BookingResponse])
 async def get_master_booking(
+    limit: int =20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
      # Делаем SQL-запрос: "Выбери все записи из таблицы bookings, где master_id равен ID текущего вошедшего пользователя"
-    query = select(Booking).where(Booking.master_id == current_user.id)
+    query = select(Booking).where(Booking.master_id == current_user.id).limit(limit).offset(offset)
     result = await db.execute(query)
 
     bookings = result.scalars().all()
@@ -348,10 +353,12 @@ async def update_booking_status (
 
 @app.get("/bookings", response_model=list[BookingResponse])
 async def get_all_bookins(
+    limit: int = 20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(RoleChecker(["admin"]))
 ):
-    query = select(Booking)
+    query = select(Booking).limit(limit).offset(offset)
     result = await db.execute(query)
     bookings = result.scalars().all()
 
