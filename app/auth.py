@@ -4,9 +4,11 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta, timezone
 
-SECRET_KEY = "SUPER_SECRET_KEY_FOR_BOOKING_SERVICE_123"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+from app.config import settings
+
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 # 1. Хэширование пароля
 def get_password_hash(password: str) -> str:
