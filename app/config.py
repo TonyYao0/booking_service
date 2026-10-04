@@ -4,7 +4,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
-    DATABASE_URL :str
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/booking_db"
 
     model_config = SettingsConfigDict(env_file=".env")
 
