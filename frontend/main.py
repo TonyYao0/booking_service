@@ -4,69 +4,95 @@ import httpx
 BACKEND_URL = "http://127.0.0.1:8000"
 
 async def main(page: ft.Page):
-    page.title = "Система бронирования | Клиентская панель"
+    page.title = "Система бронирования | Авторизация"
     page.theme_mode = ft.ThemeMode.DARK
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-    title_text = ft.Text(
-        "Добро пожаловать в сервис бронирования!",
-        size=28,
-        weight=ft.FontWeight.BOLD,
-        color=ft.Colors.BLUE_400,
+    auth_token = None
+
+    email_input = ft.TextField(
+        label='Введите ваш Email',
+        width=350,
+        prefix_icon=ft.Icons.EMAIL
     )
 
-    status_text = ft.Text(
-        "Нажмите кнопку, чтобы проверить связь с FastAPI...",
-        size=16,
+    password_input = ft.TextField(
+        label='Пароль',
+        password=True,
+        can_reveal_password=False,
+        width=350,
+        prefix_icon=ft.Icons.LOCK
     )
 
-    async def check_api_connection(e):
-        status_text.value = "Проверка связи..."
-        status_text.color = None
+    status_text = ft.Text("", size=14)
+
+    async def login_user(e):
+        nonlocal auth_token
+        status_text.value = "Проверка данных..."
+        status_text.color = ft.Colors.BLUE_200
         page.update()
 
+        login_data = {
+            "username": email_input.value,
+            "password": password_input.value,
+        }
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{BACKEND_URL}/services")
+                response = await client.post(f"{BACKEND_URL}/auth/login", data=login_data)
 
             if response.status_code == 200:
-                services_count = len(response.json())
-                status_text.value = f"Связь установлена! Получено услуг: {services_count}"
+                auth_token = response.json().get("access_token")
+                status_text.value = "Успешная авторизации!"
                 status_text.color = ft.Colors.GREEN_400
+
+                email_input.value = ""
+                password_input.value =""
             else:
-                status_text.value = f"Сервер ответил ошибкой: {response.status_code}"
+                error_detail = response.json().get("detail", "Неверный логин или пароль")
+                status_text.value = f"Ошибка! {error_detail}"
                 status_text.color = ft.Colors.RED_400
         except Exception as ex:
-            status_text.value = (
-                "Не удалось связаться с FastAPI. "
-                "Убедитесь, что сервер запущен!\n"
-                f"Ошибка: {ex}"
-            )
+            status_text.value=f"Ошибка сети: {ex}" # Обработка исключения
             status_text.color = ft.Colors.RED_400
 
         page.update()
 
-    connect_button = ft.Button(
-        content="Проверить соединение со службой API (FastAPI)",
-        icon=ft.Icons.WIFI,  # Замена для отсутствующей CELL_TOWER
-        on_click=check_api_connection,
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+    login_button = ft.Button(
+        content="Войти в личный кабинет",
+        icon=ft.Icons.LOGIN,
+        on_click=login_user,
+        width=350,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
     )
 
-    content_layout = ft.Column(
-        [
-            title_text,
-            ft.Container(height=10),
-            connect_button,
-            ft.Container(height=10),
-            status_text,
-        ],
-        alignment=ft.MainAxisAlignment.CENTER,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    auth_card = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text("Вход в систему",
+                        size=24,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.BLUE_400),
+                ft.Container(height=15),
+                email_input,
+                ft.Container(height=15),
+                password_input,
+                ft.Container(height=15),
+                login_button,
+                ft.Container(height=10),
+                status_text
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+        padding=30,
+        border_radius=16,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT)
     )
 
-    page.add(content_layout)
+    page.add(auth_card)
+
 
 if __name__ == "__main__":
     ft.run(main, view=ft.AppView.WEB_BROWSER, port=8500)
