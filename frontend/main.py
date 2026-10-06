@@ -37,7 +37,7 @@ async def main(page: ft.Page):
         page.vertical_alignment = ft.MainAxisAlignment.START
 
         loading = ft.Text("Загрузка ваших бронирований...", size=16)
-        page.add(loading)                    # ← ВАЖНО: добавили на страницу
+        page.add(loading)
         page.update()
 
         # 2. Запрос к API
@@ -119,18 +119,18 @@ async def main(page: ft.Page):
                                 ft.Text(
                                     f"📅 Дата и время: {date_display}",
                                     size=16,
-                                    weight=ft.FontWeight.BOLD,
+                                    weight=ft.FontWeight.BOLD
                                 ),
                                 ft.Text(
                                     f"ID Услуги: {b.get('service_id')} | "
                                     f"ID Мастера: {b.get('master_id')}",
                                     size=14,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    color=ft.Colors.ON_SURFACE_VARIANT
                                 ),
                                 ft.Text(
                                     f"Статус: {status}",
                                     size=14,
-                                    color=status_color,
+                                    color=status_color
                                 ),
                             ]
                         ),
