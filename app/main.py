@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_db
 from app.models import User, Service, Booking
@@ -15,6 +16,15 @@ app = FastAPI(
     title="Сервис по бронированию",
     description="Бэкенд для автоматизации записи",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # 1. ЗАВИСИМОСТЬ ДЛЯ ПРОВЕРКИ ТОКЕНА (ТЕПЕРЬ НАВЕРХУ)
