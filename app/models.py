@@ -3,11 +3,11 @@ from enum import Enum
 from sqlalchemy import ForeignKey, String, DateTime, Enum as SQLEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-
+# 
 class Base(DeclarativeBase):
     pass
 
-
+# 
 class UserRole(str, Enum):
     CLIENT = "client"
     MASTER = "master"

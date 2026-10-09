@@ -24,6 +24,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hashed_bytes = hashed_password.encode('utf-8')
     return  bcrypt.checkpw(password_bytes, hashed_bytes)
 
+# 3. Создание токена
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -34,7 +35,7 @@ def create_access_token(data: dict) -> str:
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-
+# 4. Валидация JWT
 def verify_access_token(token: str, credential_exception):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])

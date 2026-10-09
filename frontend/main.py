@@ -30,6 +30,27 @@ async def main(page: ft.Page):
     status_text = ft.Text("", size=14)
 
     # ------------------------------------------------------------------
+    # Выход
+    # ------------------------------------------------------------------
+    async def logout_user(e):
+        nonlocal auth_token
+        auth_token = None
+
+        snack = ft.SnackBar(
+            content=ft.Text("🔒 Вы вышли из учетной записи"),
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            duration=2000,
+        )
+        page.overlay.append(snack)
+        snack.open = True
+
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.CENTER
+        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        page.add(auth_card)
+        page.update()
+
+    # ------------------------------------------------------------------
     # Личный кабинет
     # ------------------------------------------------------------------
     async def load_dashboard():
@@ -52,9 +73,11 @@ async def main(page: ft.Page):
                 )
                 res_services = await client.get(f"{BACKEND_URL}/services")
 
-            # 1a. Токен истёк → на форму входа
+            # Токен истёк → на форму входа
             if res_bookings.status_code == 401:
                 page.clean()
+                page.vertical_alignment = ft.MainAxisAlignment.CENTER
+                page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
                 page.add(
                     ft.Text(
                         "🔒 Сессия истекла. Войдите заново.",
@@ -67,7 +90,6 @@ async def main(page: ft.Page):
                 page.update()
                 return
 
-            # 1b. Прочие ошибки броней
             if res_bookings.status_code != 200:
                 page.clean()
                 page.add(
@@ -82,7 +104,6 @@ async def main(page: ft.Page):
 
             bookings = res_bookings.json()
 
-            # 1c. Услуги — не критично, если упали
             if res_services.status_code == 200:
                 services = res_services.json()
 
@@ -99,6 +120,26 @@ async def main(page: ft.Page):
 
         page.clean()
 
+        # --- Шапка ---
+        header_row = ft.Row(
+            [
+                ft.Text(
+                    "Личный кабинет клиента",
+                    size=28,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.BLUE_400,
+                ),
+                ft.Button(
+                    content="Выйти",
+                    icon=ft.Icons.LOGOUT,
+                    on_click=logout_user,
+                    style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
         # --- 2. Левая колонка: список броней ---
         bookings_container = ft.Column(
             spacing=15, scroll=ft.ScrollMode.AUTO, expand=True
@@ -109,7 +150,7 @@ async def main(page: ft.Page):
                 ft.Text(
                     "У вас пока нет активных бронирований.",
                     size=16,
-                    color=ft.Colors.SURFACE_VARIANT,
+                    color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
                 )
             )
         else:
@@ -164,9 +205,8 @@ async def main(page: ft.Page):
             [
                 ft.Text(
                     "Мои бронирования",
-                    size=24,
+                    size=20,
                     weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.BLUE_400,
                 ),
                 ft.Container(height=10),
                 bookings_container,
@@ -253,7 +293,6 @@ async def main(page: ft.Page):
             except Exception as ex:
                 form_status.value = f"❌ Ошибка сети: {ex}"
                 form_status.color = ft.Colors.RED_400
-
             page.update()
 
         right_column = ft.Container(
@@ -261,7 +300,7 @@ async def main(page: ft.Page):
                 [
                     ft.Text(
                         "Записаться на услугу",
-                        size=24,
+                        size=20,
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.GREEN_400,
                     ),
@@ -288,19 +327,30 @@ async def main(page: ft.Page):
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         )
 
-        # --- 5. Общий layout ---
+        # --- Рабочая зона ---
+        workspace_layout = ft.Row(
+            [
+                left_column,
+                ft.Container(width=20),
+                right_column,
+            ],
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            expand=True,
+        )
+
+        # --- Главный контейнер ---
         main_layout = ft.Container(
             padding=30,
-            content=ft.Row(
+            content=ft.Column(
                 [
-                    left_column,
-                    ft.Container(width=20),
-                    right_column,
+                    header_row,
+                    ft.Divider(height=20),
+                    workspace_layout,
                 ],
-                alignment=ft.MainAxisAlignment.START,
-                vertical_alignment=ft.CrossAxisAlignment.START,
                 expand=True,
             ),
+            expand=True,
         )
 
         page.add(main_layout)
@@ -326,14 +376,12 @@ async def main(page: ft.Page):
                 )
 
             if response.status_code == 200:
-                received_token = response.json().get("access_token")
-                if not received_token:
-                    status_text.value = "Сервер не вернул токен."
+                auth_token = response.json().get("access_token")
+                if not auth_token:
+                    status_text.value = "Сервер не вернул токен доступа."
                     status_text.color = ft.Colors.RED_400
                     page.update()
                     return
-
-                auth_token = received_token
 
                 snack = ft.SnackBar(
                     content=ft.Text("Успешная авторизация!"),
