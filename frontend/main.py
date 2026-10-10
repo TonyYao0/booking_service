@@ -1,5 +1,6 @@
 import flet as ft
 import httpx
+from datetime import datetime
 
 BACKEND_URL = "http://127.0.0.1:8000"
 
@@ -62,16 +63,50 @@ async def main(page: ft.Page):
         page.update()
 
         headers = {"Authorization": f"Bearer {auth_token}"}
-
+        masters = []
         # --- 1. Загрузка данных ---
         bookings = []
         services = []
+        async def cancel_booking(booking_id: int):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    res = await client.delete(
+                        f"{BACKEND_URL}/bookings/{booking_id}",
+                        headers=headers,
+                    )
+                if res.status_code == 204:
+                    snack = ft.SnackBar(
+                        content=ft.Text("🗑️ Бронь отменена"),
+                        bgcolor=ft.Colors.ORANGE_400,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+                    await load_dashboard()
+                else:
+                    detail = res.json().get("detail", f"Код {res.status_code}")
+                    snack = ft.SnackBar(
+                        content=ft.Text(f"🔴 {detail}"),
+                        bgcolor=ft.Colors.RED_400,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+            except Exception as ex:
+                snack = ft.SnackBar(
+                    content=ft.Text(f"❌ Ошибка сети: {ex}"),
+                    bgcolor=ft.Colors.RED_400,
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 res_bookings = await client.get(
                     f"{BACKEND_URL}/bookings/my", headers=headers
                 )
                 res_services = await client.get(f"{BACKEND_URL}/services")
+                res_masters = await client.get(f"{BACKEND_URL}/masters")
 
             # Токен истёк → на форму входа
             if res_bookings.status_code == 401:
@@ -106,6 +141,15 @@ async def main(page: ft.Page):
 
             if res_services.status_code == 200:
                 services = res_services.json()
+
+            if res_masters.status_code == 200:
+                masters = res_masters.json()
+            # Заглушка
+            else: 
+                masters = [
+                    {"id": 1, "full_name": "Алексей (Стрижки)"},
+                    {"id": 2, "full_name": "Мария (Окрашивание)"},
+                ]
 
         except Exception as ex:
             page.clean()
@@ -150,7 +194,7 @@ async def main(page: ft.Page):
                 ft.Text(
                     "У вас пока нет активных бронирований.",
                     size=16,
-                    color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                    color=ft.Colors.SURFACE_VARIANT,
                 )
             )
         else:
@@ -170,6 +214,35 @@ async def main(page: ft.Page):
                     or b.get("start_time")
                     or "Дата не указана"
                 )
+                booking_id = b.get("id")
+
+                if status != "cancelled":
+                    actions_row = ft.Row(
+                        [
+                            ft.Text(
+                                f"Статус: {status}",
+                                size=14,
+                                color=status_color,
+                            ),
+                            ft.Container(expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE,
+                                icon_color=ft.Colors.RED_400,
+                                tooltip="Отменить бронь",
+                                on_click=lambda e, bid=booking_id: page.run_task(
+                                    cancel_booking, bid
+                                ),
+                            ),
+                        ],
+                        width=420,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    )
+                else:
+                    actions_row = ft.Text(
+                        f"Статус: {status}",
+                        size=14,
+                        color=status_color,
+                    )
 
                 bookings_container.controls.append(
                     ft.Container(
@@ -186,11 +259,7 @@ async def main(page: ft.Page):
                                     size=14,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
-                                ft.Text(
-                                    f"Статус: {status}",
-                                    size=14,
-                                    color=status_color,
-                                ),
+                                actions_row,
                             ]
                         ),
                         bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
@@ -200,6 +269,7 @@ async def main(page: ft.Page):
                         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
                     )
                 )
+
 
         left_column = ft.Column(
             [
@@ -227,19 +297,49 @@ async def main(page: ft.Page):
             ],
         )
 
-        master_input = ft.TextField(
-            label="ID Мастера",
+        # выпадающий список мастеров
+        master_dropdown = ft.Dropdown(
+            label="Выберите мастера",
             width=350,
-            value="1",
-            prefix_icon=ft.Icons.PERSON,
+            options=[
+                ft.DropdownOption(
+                    key=str(m["id"]),
+                    text=m["full_name"],
+                )
+                for m in masters
+            ],
+            value=str(masters[0]["id"]) if masters else None,
         )
 
-        datetime_input = ft.TextField(
-            label="Дата и время (ГГГГ-ММ-ДДTЧЧ:ММ:СС)",
+        # выбор даты через DatePicker
+        selected_date_str = "2026-10-20T14:00:00"
+
+        date_button = ft.Button(
+            content="Выбрать дату: 2026-10-20",
+            icon=ft.Icons.CALENDAR_MONTH,
             width=350,
-            value="2026-10-20T14:00:00",
-            prefix_icon=ft.Icons.CALENDAR_MONTH,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
         )
+        def handle_date_change(e):
+            nonlocal selected_date_str
+            if date_picker.value:
+                chosen_date = date_picker.value.strftime("%Y-%m-%d")
+                selected_date_str = f"{chosen_date}T14:00:00"
+                date_button.content = f"Выбрать дату: {chosen_date}"
+                page.update()
+
+        date_picker = ft.DatePicker(
+            first_date=datetime.now(),
+            last_date=datetime(2027, 12, 31),
+            on_change=handle_date_change,
+        )
+        page.overlay.append(date_picker)
+
+        def open_date_picker(e):
+            date_picker.open = True
+            page.update()
+
+        date_button.on_click = open_date_picker
 
         form_status = ft.Text("", size=14)
 
@@ -250,16 +350,22 @@ async def main(page: ft.Page):
                 form_status.color = ft.Colors.ORANGE_400
                 page.update()
                 return
-
+            if not master_dropdown.value:
+                form_status.value = "⚠️ Выберите мастера!"
+                form_status.color = ft.Colors.ORANGE_400
+                page.update()
+                return
+            
             form_status.value = "Отправка записи..."
             form_status.color = ft.Colors.BLUE_200
             page.update()
 
             booking_payload = {
-                "client_id": 4,
-                "master_id": int(master_input.value),
+                # client_id бэкенд заменит на current_user.id
+                "client_id": 0,
+                "master_id": int(master_dropdown.value),
                 "service_id": int(service_dropdown.value),
-                "start_time": datetime_input.value,
+                "start_time": selected_date_str,
             }
 
             try:
@@ -307,9 +413,9 @@ async def main(page: ft.Page):
                     ft.Container(height=10),
                     service_dropdown,
                     ft.Container(height=5),
-                    master_input,
+                    master_dropdown,
                     ft.Container(height=5),
-                    datetime_input,
+                    date_button,
                     ft.Container(height=10),
                     ft.Button(
                         content="Подтвердить запись",
@@ -409,6 +515,8 @@ async def main(page: ft.Page):
 
         page.update()
 
+    # удаление бронирования
+
     # ------------------------------------------------------------------
     # UI формы входа
     # ------------------------------------------------------------------
@@ -446,7 +554,6 @@ async def main(page: ft.Page):
         border_radius=16,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
     )
-
     page.add(auth_card)
 
 

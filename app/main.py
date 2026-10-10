@@ -246,24 +246,33 @@ async def get_master_booking(
     bookings = result.scalars().all()
     return bookings
 
-@app.delete('/delete/{booking_id}', status_code=status.HTTP_204_NO_CONTENT)
+@app.delete('/bookings/{booking_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_booking(
     booking_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     query = select(Booking).where(Booking.id == booking_id)
-    result = await db.execut(query)
-    booking = result.scalar_one_or_non()
+    result = await db.execute(query)
+    booking = result.scalar_one_or_none()
 
     if not booking:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUN,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Указано не верное бронирование"
         )
-    await db.delet(booking)
-    await db.commit()
+    user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if "." in user_role:
+        user_role = user_role.split(".")[-1]
 
+    if user_role !="admin" and booking.client_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нельзя отменить чужое бронирование",
+        )
+
+    await db.delete(booking)
+    await db.commit()
     return None
 
 @app.patch("/services/{service_id}", response_model=ServiceResponse)
