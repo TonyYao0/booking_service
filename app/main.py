@@ -7,8 +7,8 @@ from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_db
-from app.models import User, Service, Booking
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, UserLogin, Token, BookingStatusUpdate
+from app.models import User, Service, Booking, UserRole 
+from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, Token, BookingStatusUpdate
 from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
 
 
@@ -92,27 +92,6 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
     
     return new_user
 
-@app.post("/auth/login", response_model=Token)
-async def login_for_access_token(login_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    query = select(User).where(User.email == login_data.username)
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
-
-    if not user or not verify_password(login_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный email или пароль",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@app.get('/auth/me', response_model=UserResponse)
-async def get_current_user_principal(
-    current_user: User = Depends(get_current_user)
-):
-    return current_user
-
 
 @app.get("/services", response_model=list[ServiceResponse])
 async def get_servises(
@@ -131,10 +110,6 @@ async def get_servises(
     result = await db.execute(query)
     services = result.scalars().all()
     return services
-
-
-
-
 
 # 3. ЗАЩИЩЕННЫЙ ЭНДПОИНТ БРОНИРОВАНИЯ
 @app.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
@@ -203,9 +178,21 @@ async def create_booking(
         status=new_booking.status
     )
 
+
+@app.get("/masters", response_model=list[UserResponse])
+async def get_masters(db: AsyncSession = Depends(get_db)):
+    """Возвращает всех пользователей с ролью master."""
+    query = select(User).where(User.role == UserRole.MASTER)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
 @app.post("/auth/login", response_model=Token)
-async def login_for_access_token(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
-    query = select(User).where(User.email ==login_data.email)
+async def login_for_access_token(
+    login_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(User).where(User.email == login_data.username)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
 
@@ -216,7 +203,7 @@ async def login_for_access_token(login_data: UserLogin, db: AsyncSession = Depen
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-    return{"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/bookings/my", response_model=list[BookingResponse])
 async def get_my_bookings(
