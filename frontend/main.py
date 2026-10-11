@@ -1,6 +1,6 @@
 import flet as ft
 import httpx
-from datetime import datetime
+from datetime import datetime, time as dt_time
 
 BACKEND_URL = "http://127.0.0.1:8000"
 
@@ -11,8 +11,23 @@ async def main(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-    auth_token = None
+    prefs = ft.SharedPreferences()
+    try:
+        auth_token = await prefs.get("auth_token")
+    except Exception as ex:
+        print(">>> Ошибка чтения токена:", ex)
+        auth_token = None
+    
 
+    def pretty_date(iso_str) -> str:
+        if not iso_str or iso_str == "Дата не указана":
+            return "Дата не указана"
+        try:
+            cleaned = iso_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(cleaned)
+            return dt.strftime("%d.%m.%Y в %H:%M")
+        except Exception:
+            return iso_str
     # ------------------------------------------------------------------
     # Поля формы авторизации
     # ------------------------------------------------------------------
@@ -21,6 +36,7 @@ async def main(page: ft.Page):
         width=350,
         prefix_icon=ft.Icons.EMAIL,
     )
+
     password_input = ft.TextField(
         label="Пароль",
         password=True,
@@ -28,6 +44,7 @@ async def main(page: ft.Page):
         width=350,
         prefix_icon=ft.Icons.LOCK,
     )
+
     status_text = ft.Text("", size=14)
 
     # ------------------------------------------------------------------
@@ -36,6 +53,10 @@ async def main(page: ft.Page):
     async def logout_user(e):
         nonlocal auth_token
         auth_token = None
+        try:
+            await prefs.remove("auth_token")
+        except Exception as ex:
+            print(">>> Ошибка удаления токена:", ex)
 
         snack = ft.SnackBar(
             content=ft.Text("🔒 Вы вышли из учетной записи"),
@@ -249,7 +270,7 @@ async def main(page: ft.Page):
                         content=ft.Column(
                             [
                                 ft.Text(
-                                    f"📅 Дата и время: {date_display}",
+                                    f"📅 Дата и время: {pretty_date(date_display)}",
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                 ),
@@ -312,21 +333,35 @@ async def main(page: ft.Page):
         )
 
         # выбор даты через DatePicker
-        selected_date_str = "2026-10-20T14:00:00"
+        selected_date_part = "2026-10-20"
+        selected_time_part = "14:00"
+        selected_date_str = f"{selected_date_part}T{selected_time_part}:00"
+
+        def rebuild_datetime():
+            nonlocal selected_date_str
+            selected_date_str = f"{selected_date_part}T{selected_time_part}:00"
 
         date_button = ft.Button(
-            content="Выбрать дату: 2026-10-20",
+            content=f"Выбрать дату: {selected_date_part}",
             icon=ft.Icons.CALENDAR_MONTH,
             width=350,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
         )
+
+        time_button = ft.Button(
+            content=f"Выбрать время: {selected_time_part}",
+            icon=ft.Icons.ACCESS_TIME,
+            width=350,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+        )
         def handle_date_change(e):
-            nonlocal selected_date_str
+            nonlocal selected_date_part
             if date_picker.value:
-                chosen_date = date_picker.value.strftime("%Y-%m-%d")
-                selected_date_str = f"{chosen_date}T14:00:00"
-                date_button.content = f"Выбрать дату: {chosen_date}"
+                selected_date_part = date_picker.value.strftime("%Y-%m-%d")
+                date_button.content = f"Выбрать дату: {selected_date_part}"
+                rebuild_datetime()
                 page.update()
+ 
 
         date_picker = ft.DatePicker(
             first_date=datetime.now(),
@@ -335,11 +370,30 @@ async def main(page: ft.Page):
         )
         page.overlay.append(date_picker)
 
+        def handle_time_change(e):
+            nonlocal selected_time_part
+            if time_picker.value:
+                selected_time_part = time_picker.value.strftime("%H:%M")
+                time_button.content = f"Выбрать время: {selected_time_part}"
+                rebuild_datetime()
+                page.update()
+
+        time_picker = ft.TimePicker(
+            value=dt_time(14, 0),
+            on_change=handle_time_change,
+        )
+        page.overlay.append(time_picker)
+
         def open_date_picker(e):
             date_picker.open = True
             page.update()
 
+        def open_time_picker(e):
+            time_picker.open = True
+            page.update()
+
         date_button.on_click = open_date_picker
+        time_button.on_click = open_time_picker
 
         form_status = ft.Text("", size=14)
 
@@ -416,6 +470,8 @@ async def main(page: ft.Page):
                     master_dropdown,
                     ft.Container(height=5),
                     date_button,
+                    ft.Container(height=5),
+                    time_button,
                     ft.Container(height=10),
                     ft.Button(
                         content="Подтвердить запись",
@@ -488,7 +544,11 @@ async def main(page: ft.Page):
                     status_text.color = ft.Colors.RED_400
                     page.update()
                     return
-
+                try:
+                    await prefs.set("auth_token", auth_token)
+                    print(">>> Токен сохранён")
+                except Exception as ex:
+                    print(">>> Ошибка сохранения токена:", ex)
                 snack = ft.SnackBar(
                     content=ft.Text("Успешная авторизация!"),
                     bgcolor=ft.Colors.GREEN_400,
@@ -554,7 +614,11 @@ async def main(page: ft.Page):
         border_radius=16,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
     )
-    page.add(auth_card)
+    # проврка наличия token
+    if auth_token:
+        await load_dashboard()
+    else:
+        page.add(auth_card)
 
 
 if __name__ == "__main__":
