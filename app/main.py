@@ -111,6 +111,12 @@ async def get_servises(
     services = result.scalars().all()
     return services
 
+@app.get("/auth/me", response_model=UserResponse)
+async def get_current_user_principal(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
+
 # 3. ЗАЩИЩЕННЫЙ ЭНДПОИНТ БРОНИРОВАНИЯ
 @app.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking(

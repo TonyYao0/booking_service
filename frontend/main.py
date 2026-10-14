@@ -24,7 +24,7 @@ async def _main_impl(page: ft.Page):
     WORK_END = dt_time(21, 0)
 
     auth_token = None
-    
+    user_name = ""
 
     def pretty_date(iso_str) -> str:
         if not iso_str or iso_str == "Дата не указана":
@@ -107,6 +107,7 @@ async def _main_impl(page: ft.Page):
     # Личный кабинет
     # ------------------------------------------------------------------
     async def load_dashboard():
+        nonlocal user_name
         page.clean()
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.START
@@ -196,6 +197,14 @@ async def _main_impl(page: ft.Page):
                 )
                 res_services = await client.get(f"{BACKEND_URL}/services")
                 res_masters = await client.get(f"{BACKEND_URL}/masters")
+                res_me = await client.get(
+                    f"{BACKEND_URL}/auth/me", headers=headers
+                )
+
+            # Имя пользователя для шапки
+            if res_me.status_code == 200:
+                me = res_me.json()
+                user_name = me.get("full_name") or me.get("email", "")
 
             # Токен истёк → на форму входа
             if res_bookings.status_code == 401:
@@ -257,14 +266,25 @@ async def _main_impl(page: ft.Page):
 
 
         # --- Шапка ---
+        welcome_text = (
+            f"Привет, {user_name}!"
+            if user_name
+            else "Личный кабинет клиента"
+        )
         header_row = ft.Row(
             [
                 ft.Text(
-                    "Личный кабинет клиента",
+                    welcome_text,
                     size=28,
                     weight=ft.FontWeight.BOLD,
                     color=ft.Colors.BLUE_400,
                 ),
+                ft.IconButton(
+                            icon=ft.Icons.REFRESH,
+                            icon_color=ft.Colors.BLUE_200,
+                            tooltip="Обновить список",
+                            on_click=lambda e: page.run_task(load_dashboard),
+                        ),
                 ft.Button(
                     content="Выйти",
                     icon=ft.Icons.LOGOUT,
