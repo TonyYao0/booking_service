@@ -506,7 +506,7 @@ async def _main_impl(page: ft.Page):
             f"Привет, {user_name}!"
             if user_name
             else "Личный кабинет клиента"
-        )
+            )
         header_row = ft.Row(
             [
                 ft.Text(
