@@ -20,8 +20,9 @@ async def _main_impl(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    WORK_START = dt_time(9, 0)
+    WORK_END = dt_time(21, 0)
 
-    prefs = ft.SharedPreferences()
     auth_token = None
     
 
@@ -52,17 +53,41 @@ async def _main_impl(page: ft.Page):
     )
 
     status_text = ft.Text("", size=14)
+    # ------------------------------------------------------------------
+    # Поля формы регистрации
+    # ------------------------------------------------------------------
+    reg_email_input = ft.TextField(
+        label="Email",
+        width=350,
+        prefix_icon=ft.Icons.EMAIL,
+    )
+    reg_full_name_input = ft.TextField(
+        label="Имя и фамилия",
+        width=350,
+        prefix_icon=ft.Icons.PERSON,
+    )
+    reg_password_input = ft.TextField(
+        label="Пароль (минимум 6 символов)",
+        password=True,
+        can_reveal_password=True,
+        width=350,
+        prefix_icon=ft.Icons.LOCK,
+    )
 
+    reg_password_confirm_input = ft.TextField(
+        label="Повторите пароль",
+        password=True,
+        can_reveal_password=True,
+        width=350,
+        prefix_icon=ft.Icons.LOCK,
+    )
+    reg_status_text = ft.Text("", size=14)
     # ------------------------------------------------------------------
     # Выход
     # ------------------------------------------------------------------
     async def logout_user(e):
         nonlocal auth_token
         auth_token = None
-        try:
-            await prefs.remove("auth_token")
-        except Exception as ex:
-            print(">>> Ошибка удаления токена:", ex)
 
         snack = ft.SnackBar(
             content=ft.Text("🔒 Вы вышли из учетной записи"),
@@ -261,7 +286,7 @@ async def _main_impl(page: ft.Page):
                 ft.Text(
                     "У вас пока нет активных бронирований.",
                     size=16,
-                    color=ft.Colors.SURFACE_VARIANT,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
                 )
             )
         else:
@@ -409,7 +434,10 @@ async def _main_impl(page: ft.Page):
                 date_button.content = f"Выбрать дату: {selected_date_part}"
                 rebuild_datetime()
                 page.update()
- 
+        page.overlay[:] = [
+            c for c in page.overlay
+            if not isinstance(c, (ft.DatePicker, ft.TimePicker))
+        ]
 
         date_picker = ft.DatePicker(
             first_date=datetime.now(),
@@ -420,11 +448,28 @@ async def _main_impl(page: ft.Page):
 
         def handle_time_change(e):
             nonlocal selected_time_part
-            if time_picker.value:
-                selected_time_part = time_picker.value.strftime("%H:%M")
-                time_button.content = f"Выбрать время: {selected_time_part}"
-                rebuild_datetime()
+            if not time_picker.value:
+                return
+
+            chosen = time_picker.value
+            if not (WORK_START <= chosen <= WORK_END):
+                snack = ft.SnackBar(
+                    content=ft.Text(
+                        f"⏰ Мы работаем с {WORK_START.strftime('%H:%M')} "
+                        f"до {WORK_END.strftime('%H:%M')}"
+                    ),
+                    bgcolor=ft.Colors.ORANGE_400,
+                    duration=3000,
+                )
+                page.overlay.append(snack)
+                snack.open = True
                 page.update()
+                return
+
+            selected_time_part = chosen.strftime("%H:%M")
+            time_button.content = f"Выбрать время: {selected_time_part}"
+            rebuild_datetime()
+            page.update()
 
         time_picker = ft.TimePicker(
             value=dt_time(14, 0),
@@ -503,39 +548,77 @@ async def _main_impl(page: ft.Page):
                 form_status.color = ft.Colors.RED_400
             page.update()
 
-        right_column = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "Записаться на услугу",
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.GREEN_400,
-                    ),
-                    ft.Container(height=10),
-                    service_dropdown,
-                    ft.Container(height=5),
-                    master_dropdown,
-                    ft.Container(height=5),
-                    date_button,
-                    ft.Container(height=5),
-                    time_button,
-                    ft.Container(height=10),
-                    ft.Button(
-                        content="Подтвердить запись",
-                        icon=ft.Icons.CHECK,
-                        on_click=create_booking,
-                        width=350,
-                    ),
-                    ft.Container(height=5),
-                    form_status,
-                ]
-            ),
-            padding=20,
-            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
-            border_radius=12,
-            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-        )
+        if not services or not masters:
+            missing = []
+            if not services:
+                missing.append("услуги")
+            if not masters:
+                missing.append("мастера")
+
+            right_column = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Запись временно недоступна",
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.ORANGE_400,
+                        ),
+                        ft.Container(height=10),
+                        ft.Text(
+                            f"В системе нет доступных: {' и '.join(missing)}.",
+                            size=14,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            "Обратитесь к администратору.",
+                            size=14,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                padding=30,
+                width=390,
+                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                border_radius=12,
+                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            )
+        else:
+            right_column = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Записаться на услугу",
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.GREEN_400,
+                        ),
+                        ft.Container(height=10),
+                        service_dropdown,
+                        ft.Container(height=5),
+                        master_dropdown,
+                        ft.Container(height=5),
+                        date_button,
+                        ft.Container(height=5),
+                        time_button,
+                        ft.Container(height=10),
+                        ft.Button(
+                            content="Подтвердить запись",
+                            icon=ft.Icons.CHECK,
+                            on_click=create_booking,
+                            width=350,
+                        ),
+                        ft.Container(height=5),
+                        form_status,
+                    ]
+                ),
+                padding=20,
+                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                border_radius=12,
+                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            )
 
         # --- Рабочая зона ---
         workspace_layout = ft.Row(
@@ -592,11 +675,6 @@ async def _main_impl(page: ft.Page):
                     status_text.color = ft.Colors.RED_400
                     page.update()
                     return
-                try:
-                    await prefs.set("auth_token", auth_token)
-                    print(">>> Токен сохранён")
-                except Exception as ex:
-                    print(">>> Ошибка сохранения токена:", ex)
                 snack = ft.SnackBar(
                     content=ft.Text("Успешная авторизация!"),
                     bgcolor=ft.Colors.GREEN_400,
@@ -624,7 +702,108 @@ async def _main_impl(page: ft.Page):
         page.update()
 
     # удаление бронирования
+    # ------------------------------------------------------------------
+    # Переключение между формами
+    # ------------------------------------------------------------------
+    async def show_login(e=None):
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.CENTER
+        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        page.add(auth_card)
+        page.update()
 
+    async def show_register(e=None):
+        reg_status_text.value = ""
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.CENTER
+        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        page.add(register_card)
+        page.update()
+
+    # ------------------------------------------------------------------
+    # Регистрация
+    # ------------------------------------------------------------------
+    async def register_user(e):
+        email = (reg_email_input.value or "").strip()
+        full_name = (reg_full_name_input.value or "").strip()
+        password = reg_password_input.value or ""
+        password_confirm = reg_password_confirm_input.value or ""
+
+        # Валидация на фронте
+        if not email or "@" not in email or "." not in email:
+            reg_status_text.value = "⚠️ Введите корректный email"
+            reg_status_text.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if len(full_name) < 2:
+            reg_status_text.value = "⚠️ Имя должно быть минимум 2 символа"
+            reg_status_text.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if len(password) < 6:
+            reg_status_text.value = "⚠️ Пароль должен быть минимум 6 символов"
+            reg_status_text.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if password != password_confirm:
+            reg_status_text.value = "⚠️ Пароли не совпадают"
+            reg_status_text.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        reg_status_text.value = "Регистрация..."
+        reg_status_text.color = ft.Colors.BLUE_200
+        page.update()
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    f"{BACKEND_URL}/auth/register",
+                    json={
+                        "email": email,
+                        "full_name": full_name,
+                        "password": password,
+                    },
+                )
+
+            if response.status_code == 201:
+                snack = ft.SnackBar(
+                    content=ft.Text("🎉 Регистрация успешна! Входим..."),
+                    bgcolor=ft.Colors.GREEN_400,
+                )
+                page.overlay.append(snack)
+                snack.open = True
+
+                # Очищаем поля регистрации
+                reg_email_input.value = ""
+                reg_full_name_input.value = ""
+                reg_password_input.value = ""
+                reg_password_confirm_input.value = ""
+
+                # Автоматический вход
+                email_input.value = email
+                password_input.value = password
+                page.update()
+
+                await login_user(None)
+                return
+            else:
+                err = response.json().get("detail", "Ошибка регистрации")
+                if isinstance(err, list):
+                    err = "; ".join(
+                        f"{e.get('loc', ['?'])[-1]}: {e.get('msg')}"
+                        for e in err
+                    )
+                reg_status_text.value = f"🔴 {err}"
+                reg_status_text.color = ft.Colors.RED_400
+        except Exception as ex:
+            reg_status_text.value = f"❌ Ошибка сети: {ex}"
+            reg_status_text.color = ft.Colors.RED_400
+
+        page.update()
     # ------------------------------------------------------------------
     # UI формы входа
     # ------------------------------------------------------------------
@@ -653,6 +832,11 @@ async def _main_impl(page: ft.Page):
                 login_button,
                 ft.Container(height=10),
                 status_text,
+                ft.Container(height=5),
+                ft.TextButton(
+                    content="Нет аккаунта? Зарегистрироваться",
+                    on_click=show_register,
+                ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
@@ -662,23 +846,57 @@ async def _main_impl(page: ft.Page):
         border_radius=16,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
     )
+    # ------------------------------------------------------------------
+    # Карточка регистрации
+    # ------------------------------------------------------------------
+    register_button = ft.Button(
+        content="Зарегистрироваться",
+        icon=ft.Icons.PERSON_ADD,
+        on_click=register_user,
+        width=350,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+    )
+
+    register_card = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text(
+                    "Регистрация",
+                    size=24,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.GREEN_400,
+                ),
+                ft.Container(height=15),
+                reg_email_input,
+                ft.Container(height=10),
+                reg_full_name_input,
+                ft.Container(height=10),
+                reg_password_input,
+                ft.Container(height=10),
+                reg_password_confirm_input,
+                ft.Container(height=15),
+                register_button,
+                ft.Container(height=10),
+                reg_status_text,
+                ft.Container(height=5),
+                ft.TextButton(
+                    content="Уже есть аккаунт? Войти",
+                    on_click=show_login,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+        padding=30,
+        border_radius=16,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+    )
+
     page.add(auth_card)
     page.update()
 
     # В фоне пытаемся восстановить сессию
-    async def restore_session():
-        nonlocal auth_token
-        try:
-            token = await prefs.get("auth_token")
-        except Exception as ex:
-            print(">>> Не удалось восстановить токен:", ex)
-            return
-        if token:
-            auth_token = token
-            print(">>> Сессия восстановлена")
-            await load_dashboard()
-
-    page.run_task(restore_session)
 
 
 if __name__ == "__main__":
