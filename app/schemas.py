@@ -11,6 +11,10 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6, max_length=50)
 
+
+class UserUpdate(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+
 # What сервер отдает обратно клиенту (без пароля!)
 class UserResponse(UserBase):
     id: int
@@ -63,3 +67,7 @@ class Token(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: str = Field(..., min_length=3, max_length=20)
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6, max_length=50)

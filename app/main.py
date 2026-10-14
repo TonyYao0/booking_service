@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_db
 from app.models import User, Service, Booking, UserRole 
-from app.schemas import UserCreate, UserResponse, ServiceCreate, ServiceResponse, BookingCreate, BookingResponse, Token, BookingStatusUpdate
+from app.schemas import (UserCreate, UserResponse, ServiceCreate, PasswordChange, 
+                        ServiceResponse,BookingCreate, 
+                        BookingResponse, Token, 
+                        BookingStatusUpdate, UserUpdate)
 from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
 
 
@@ -116,6 +119,34 @@ async def get_current_user_principal(
     current_user: User = Depends(get_current_user)
 ):
     return current_user
+
+@app.patch("/auth/me", response_model=UserResponse)
+async def update_profile(
+    user_date: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user:User = Depends(get_current_user),
+):
+    current_user.full_name = user_date.full_name
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+@app.patch("/auth/me/password")
+async def change_password(
+    data: PasswordChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Текущий пароль неверный",
+        )
+
+    current_user.hashed_password = get_password_hash(data.new_password)
+    await db.commit()
+
+    return {"message": "Пароль обновлён"}
 
 # 3. ЗАЩИЩЕННЫЙ ЭНДПОИНТ БРОНИРОВАНИЯ
 @app.post("/bookings", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)

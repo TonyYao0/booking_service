@@ -26,6 +26,242 @@ async def _main_impl(page: ft.Page):
     auth_token = None
     user_name = ""
 
+    # ------------------------------------------------------------------
+    # Профиль пользователя
+    # ------------------------------------------------------------------
+    profile_email = ft.Text("", size=16, color=ft.Colors.ON_SURFACE_VARIANT)
+    profile_name_input = ft.TextField(
+        label="Имя и фамилия",
+        width=350,
+        prefix_icon=ft.Icons.PERSON,
+    )
+    profile_status = ft.Text("", size=14)
+
+    pwd_current_input = ft.TextField(
+        label="Текущий пароль",
+        password=True,
+        can_reveal_password=True,
+        width=350,
+        prefix_icon=ft.Icons.LOCK,
+    )
+    pwd_new_input = ft.TextField(
+        label="Новый пароль (минимум 6 символов)",
+        password=True,
+        can_reveal_password=True,
+        width=350,
+        prefix_icon=ft.Icons.LOCK,
+    )
+    pwd_confirm_input = ft.TextField(
+        label="Повторите новый пароль",
+        password=True,
+        can_reveal_password=True,
+        width=350,
+        prefix_icon=ft.Icons.LOCK,
+    )
+    pwd_status = ft.Text("", size=14)
+
+    async def change_password(e):
+        current = pwd_current_input.value or ""
+        new = pwd_new_input.value or ""
+        confirm = pwd_confirm_input.value or ""
+
+        if not current:
+            pwd_status.value = "⚠️ Введите текущий пароль"
+            pwd_status.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if len(new) < 6:
+            pwd_status.value = "⚠️ Новый пароль минимум 6 символов"
+            pwd_status.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if new != confirm:
+            pwd_status.value = "⚠️ Пароли не совпадают"
+            pwd_status.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        if new == current:
+            pwd_status.value = "⚠️ Новый пароль совпадает с текущим"
+            pwd_status.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        pwd_status.value = "Сохранение..."
+        pwd_status.color = ft.Colors.BLUE_200
+        page.update()
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.patch(
+                    f"{BACKEND_URL}/auth/me/password",
+                    json={
+                        "current_password": current,
+                        "new_password": new,
+                    },
+                    headers=headers,
+                )
+            if resp.status_code == 200:
+                pwd_current_input.value = ""
+                pwd_new_input.value = ""
+                pwd_confirm_input.value = ""
+                pwd_status.value = ""
+                snack = ft.SnackBar(
+                    content=ft.Text("🔑 Пароль обновлён"),
+                    bgcolor=ft.Colors.GREEN_400,
+                    duration=2500,
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+                return
+            else:
+                detail = resp.json().get("detail", f"Код {resp.status_code}")
+                pwd_status.value = f"🔴 {detail}"
+                pwd_status.color = ft.Colors.RED_400
+        except Exception as ex:
+            pwd_status.value = f"❌ Ошибка сети: {ex}"
+            pwd_status.color = ft.Colors.RED_400
+        page.update()
+
+
+    async def save_profile(e):
+        new_name = (profile_name_input.value or "").strip()
+        if len(new_name) < 2:
+            profile_status.value = "⚠️ Имя должно быть минимум 2 символа"
+            profile_status.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        profile_status.value = "Сохранение..."
+        profile_status.color = ft.Colors.BLUE_200
+        page.update()
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.patch(
+                    f"{BACKEND_URL}/auth/me",
+                    json={"full_name": new_name},
+                    headers=headers,
+                )
+            if resp.status_code == 200:
+                nonlocal user_name
+                user_name = new_name
+                snack = ft.SnackBar(
+                    content=ft.Text("✅ Профиль обновлён"),
+                    bgcolor=ft.Colors.GREEN_400,
+                    duration=2000,
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+                await load_dashboard()
+                return
+            else:
+                detail = resp.json().get("detail", f"Код {resp.status_code}")
+                profile_status.value = f"🔴 {detail}"
+                profile_status.color = ft.Colors.RED_400
+        except Exception as ex:
+            profile_status.value = f"❌ Ошибка сети: {ex}"
+            profile_status.color = ft.Colors.RED_400
+        page.update()
+
+    async def show_profile(e=None):
+        profile_status.value = ""
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.CENTER
+        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{BACKEND_URL}/auth/me", headers=headers
+                )
+            if resp.status_code == 200:
+                me = resp.json()
+                profile_email.value = me.get("email", "")
+                profile_name_input.value = me.get("full_name", "")
+            else:
+                profile_email.value = "(не удалось загрузить)"
+        except Exception as ex:
+            profile_email.value = f"(ошибка: {ex})"
+
+        profile_card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "Профиль",
+                        size=24,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.BLUE_400,
+                    ),
+                    ft.Container(height=15),
+                    ft.Text("Email:", size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                    profile_email,
+                    ft.Container(height=15),
+                    profile_name_input,
+                    ft.Container(height=15),
+                    ft.Button(
+                        content="Сохранить",
+                        icon=ft.Icons.SAVE,
+                        on_click=save_profile,
+                        width=350,
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=8)
+                        ),
+                    ),
+                    ft.Container(height=10),
+                    profile_status,
+                    ft.Divider(height=30),
+                    ft.Text(
+                        "Смена пароля",
+                        size=18,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.ORANGE_400,
+                    ),
+                    ft.Container(height=10),
+                    pwd_current_input,
+                    ft.Container(height=10),
+                    pwd_new_input,
+                    ft.Container(height=10),
+                    pwd_confirm_input,
+                    ft.Container(height=15),
+                    ft.Button(
+                        content="Сменить пароль",
+                        icon=ft.Icons.KEY,
+                        on_click=change_password,
+                        width=350,
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=8),
+                            color=ft.Colors.ORANGE_400,
+                        ),
+                    ),
+                    ft.Container(height=10),
+                    pwd_status,
+                    ft.Container(height=5),
+                    ft.TextButton(
+                        content="← Назад в кабинет",
+                        on_click=lambda e: page.run_task(load_dashboard),
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            padding=30,
+            border_radius=16,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+        )
+
+        page.add(profile_card)
+        page.update()
+        
+
     def pretty_date(iso_str) -> str:
         if not iso_str or iso_str == "Дата не указана":
             return "Дата не указана"
@@ -279,22 +515,35 @@ async def _main_impl(page: ft.Page):
                     weight=ft.FontWeight.BOLD,
                     color=ft.Colors.BLUE_400,
                 ),
-                ft.IconButton(
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.PERSON_OUTLINE,
+                            icon_color=ft.Colors.BLUE_200,
+                            tooltip="Профиль",
+                            on_click=show_profile,
+                        ),
+                        ft.IconButton(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.BLUE_200,
                             tooltip="Обновить список",
                             on_click=lambda e: page.run_task(load_dashboard),
                         ),
-                ft.Button(
-                    content="Выйти",
-                    icon=ft.Icons.LOGOUT,
-                    on_click=logout_user,
-                    style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        ft.Button(
+                            content="Выйти",
+                            icon=ft.Icons.LOGOUT,
+                            on_click=logout_user,
+                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        ),
+                    ],
+                    spacing=5,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
+        
 
         # --- 2. Левая колонка: список броней ---
         bookings_container = ft.Column(

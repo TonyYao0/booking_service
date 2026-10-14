@@ -33,7 +33,7 @@ def create_access_token(data: dict) -> str:
     return encoded_jwt
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 # 4. Валидация JWT
 def verify_access_token(token: str, credential_exception):
