@@ -25,6 +25,7 @@ async def _main_impl(page: ft.Page):
 
     auth_token = None
     user_name = ""
+    user_role = ""
 
     # ------------------------------------------------------------------
     # Профиль пользователя
@@ -274,6 +275,677 @@ async def _main_impl(page: ft.Page):
     # ------------------------------------------------------------------
     # Поля формы авторизации
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Кабинет мастера
+    # ------------------------------------------------------------------
+    async def load_master_dashboard():
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.START
+        page.horizontal_alignment = ft.CrossAxisAlignment.START
+
+        page.add(ft.Text("Загрузка записей...", size=16))
+        page.update()
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.get(
+                    f"{BACKEND_URL}/bookings/master", headers=headers
+                )
+            if res.status_code != 200:
+                page.clean()
+                page.add(
+                    ft.Text(
+                        f"🔴 Ошибка загрузки: {res.status_code}",
+                        color=ft.Colors.RED_400,
+                    )
+                )
+                page.update()
+                return
+            bookings = res.json()
+        except Exception as ex:
+            page.clean()
+            page.add(ft.Text(f"❌ {ex}", color=ft.Colors.RED_400))
+            page.update()
+            return
+
+        page.clean()
+
+        welcome = (
+            f"Кабинет мастера: {user_name}"
+            if user_name
+            else "Кабинет мастера"
+        )
+        header_row = ft.Row(
+            [
+                ft.Text(
+                    welcome,
+                    size=28,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.ORANGE_400,
+                ),
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.REFRESH,
+                            icon_color=ft.Colors.BLUE_200,
+                            tooltip="Обновить",
+                            on_click=lambda e: page.run_task(load_master_dashboard),
+                        ),
+                        ft.Button(
+                            content="Выйти",
+                            icon=ft.Icons.LOGOUT,
+                            on_click=logout_user,
+                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        ),
+                    ],
+                    spacing=5,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        async def set_status(booking_id: int, new_status: str):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.patch(
+                        f"{BACKEND_URL}/bookings/{booking_id}/status",
+                        json={"status": new_status},
+                        headers=headers,
+                    )
+                if resp.status_code == 200:
+                    label = {
+                        "confirmed": "✅ Бронь подтверждена",
+                        "completed": "🏁 Бронь завершена",
+                        "cancelled": "🗑️ Бронь отменена",
+                    }.get(new_status, "Обновлено")
+                    snack = ft.SnackBar(
+                        content=ft.Text(label),
+                        bgcolor=ft.Colors.GREEN_400,
+                        duration=2000,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+                    await load_master_dashboard()
+                else:
+                    detail = resp.json().get("detail", f"Код {resp.status_code}")
+                    snack = ft.SnackBar(
+                        content=ft.Text(f"🔴 {detail}"),
+                        bgcolor=ft.Colors.RED_400,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+            except Exception as ex:
+                snack = ft.SnackBar(
+                    content=ft.Text(f"❌ {ex}"),
+                    bgcolor=ft.Colors.RED_400,
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+
+        bookings_container = ft.Column(
+            spacing=15, scroll=ft.ScrollMode.AUTO, expand=True
+        )
+
+        if not bookings:
+            bookings_container.controls.append(
+                ft.Text(
+                    "Пока нет записей к вам.",
+                    size=16,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                )
+            )
+        else:
+            for b in bookings:
+                status = b.get("status") or "created"
+                if status == "cancelled":
+                    status_color = ft.Colors.RED_400
+                elif status in ("completed", "done"):
+                    status_color = ft.Colors.BLUE_400
+                elif status == "confirmed":
+                    status_color = ft.Colors.GREEN_400
+                else:
+                    status_color = ft.Colors.ORANGE_400
+
+                date_display = b.get("start_time") or "Дата не указана"
+                booking_id = b.get("id")
+
+                action_buttons = []
+                if status in ("created", "pending"):
+                    action_buttons.append(
+                        ft.Button(
+                            content="Подтвердить",
+                            icon=ft.Icons.CHECK,
+                            on_click=lambda e, bid=booking_id: page.run_task(
+                                set_status, bid, "confirmed"
+                            ),
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.GREEN_600,
+                                color=ft.Colors.WHITE,
+                            ),
+                        )
+                    )
+                    action_buttons.append(
+                        ft.Button(
+                            content="Отменить",
+                            icon=ft.Icons.CLOSE,
+                            on_click=lambda e, bid=booking_id: page.run_task(
+                                set_status, bid, "cancelled"
+                            ),
+                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        )
+                    )
+                elif status == "confirmed":
+                    action_buttons.append(
+                        ft.Button(
+                            content="Завершить",
+                            icon=ft.Icons.DONE_ALL,
+                            on_click=lambda e, bid=booking_id: page.run_task(
+                                set_status, bid, "completed"
+                            ),
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.BLUE_600,
+                                color=ft.Colors.WHITE,
+                            ),
+                        )
+                    )
+                    action_buttons.append(
+                        ft.Button(
+                            content="Отменить",
+                            icon=ft.Icons.CLOSE,
+                            on_click=lambda e, bid=booking_id: page.run_task(
+                                set_status, bid, "cancelled"
+                            ),
+                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        )
+                    )
+
+                actions_row = (
+                    ft.Row(action_buttons, spacing=10)
+                    if action_buttons
+                    else ft.Text("—", color=ft.Colors.ON_SURFACE_VARIANT)
+                )
+
+                bookings_container.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text(
+                                    f"📅 {pretty_date(date_display)}",
+                                    size=16,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                                ft.Text(
+                                    f"Клиент: "
+                                    f"{b.get('client_name') or b.get('client_id')}",
+                                    size=14,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                ft.Text(
+                                    f"Услуга: "
+                                    f"{b.get('service_name') or b.get('service_id')}",
+                                    size=14,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            f"Статус: {status}",
+                                            size=14,
+                                            color=status_color,
+                                        ),
+                                        ft.Container(expand=True),
+                                        actions_row,
+                                    ],
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ]
+                        ),
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                        padding=15,
+                        border_radius=10,
+                        width=700,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                    )
+                )
+
+        main_layout = ft.Container(
+            padding=30,
+            content=ft.Column(
+                [header_row, ft.Divider(height=20), bookings_container],
+                expand=True,
+            ),
+            expand=True,
+        )
+        page.add(main_layout)
+        page.update()
+
+    # ------------------------------------------------------------------
+    # Админ-панель
+    # ------------------------------------------------------------------
+    async def load_admin_dashboard():
+        page.clean()
+        page.vertical_alignment = ft.MainAxisAlignment.START
+        page.horizontal_alignment = ft.CrossAxisAlignment.START
+
+        page.add(ft.Text("Загрузка админ-панели...", size=16))
+        page.update()
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res_services = await client.get(f"{BACKEND_URL}/services")
+                res_all_services = await client.get(f"{BACKEND_URL}/services/all", headers=headers)
+                res_users = await client.get(f"{BACKEND_URL}/users", headers=headers)
+                res_bookings = await client.get(f"{BACKEND_URL}/bookings", headers=headers)
+
+            if res_users.status_code != 200:
+                page.clean()
+                page.add(ft.Text(f"🔴 Ошибка доступа: {res_users.status_code}", color=ft.Colors.RED_400))
+                page.update()
+                return
+
+            services = res_services.json() if res_services.status_code == 200 else []
+            all_services = res_all_services.json() if res_all_services.status_code == 200 else services
+            users = res_users.json()
+            bookings = res_bookings.json() if res_bookings.status_code == 200 else []
+
+            # Скрытые = есть в all, но нет в активных
+            active_ids = {s["id"] for s in services}
+            hidden_services = [s for s in all_services if s["id"] not in active_ids]
+
+        except Exception as ex:
+            page.clean()
+            page.add(ft.Text(f"❌ {ex}", color=ft.Colors.RED_400))
+            page.update()
+            return
+
+        page.clean()
+
+        # --- Шапка ---
+        header_row = ft.Row(
+            [
+                ft.Text(
+                    f"Админ-панель: {user_name}",
+                    size=28,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.PURPLE_400,
+                ),
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.REFRESH,
+                            icon_color=ft.Colors.BLUE_200,
+                            tooltip="Обновить",
+                            on_click=lambda e: page.run_task(load_admin_dashboard),
+                        ),
+                        ft.Button(
+                            content="Выйти",
+                            icon=ft.Icons.LOGOUT,
+                            on_click=logout_user,
+                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                        ),
+                    ],
+                    spacing=5,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        # --- Управление услугами ---
+        async def create_service(e):
+            name = (new_svc_name.value or "").strip()
+            price_str = (new_svc_price.value or "").strip()
+            duration_str = (new_svc_duration.value or "").strip()
+
+            if len(name) < 2:
+                svc_status.value = "⚠️ Название минимум 2 символа"
+                svc_status.color = ft.Colors.ORANGE_400
+                page.update()
+                return
+            try:
+                price = int(price_str)
+                duration = int(duration_str)
+                if price < 0 or duration <= 0:
+                    raise ValueError
+            except ValueError:
+                svc_status.value = "⚠️ Цена и длительность должны быть числами"
+                svc_status.color = ft.Colors.ORANGE_400
+                page.update()
+                return
+
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.post(
+                        f"{BACKEND_URL}/services",
+                        json={"name": name, "price": price, "duration_minutes": duration},
+                        headers=headers,
+                    )
+                if resp.status_code == 201:
+                    new_svc_name.value = ""
+                    new_svc_price.value = ""
+                    new_svc_duration.value = ""
+                    snack = ft.SnackBar(content=ft.Text("✅ Услуга добавлена"), bgcolor=ft.Colors.GREEN_400)
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+                    await load_admin_dashboard()
+                else:
+                    svc_status.value = f"🔴 Ошибка: {resp.status_code}"
+                    svc_status.color = ft.Colors.RED_400
+                    page.update()
+            except Exception as ex:
+                svc_status.value = f"❌ {ex}"
+                svc_status.color = ft.Colors.RED_400
+                page.update()
+
+        async def delete_service(svc_id: int):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.delete(
+                        f"{BACKEND_URL}/services/{svc_id}",
+                        headers=headers,
+                    )
+                if resp.status_code == 204:
+                    snack = ft.SnackBar(
+                        content=ft.Text("🗑️ Услуга скрыта (можно восстановить)"),
+                        bgcolor=ft.Colors.ORANGE_400,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+                    await load_admin_dashboard()
+                else:
+                    try:
+                        detail = resp.json().get("detail", f"Ошибка {resp.status_code}")
+                    except Exception:
+                        detail = f"Ошибка {resp.status_code}"
+                    snack = ft.SnackBar(content=ft.Text(f"🔴 {detail}"), bgcolor=ft.Colors.RED_400)
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+            except Exception as ex:
+                snack = ft.SnackBar(content=ft.Text(f"❌ {ex}"), bgcolor=ft.Colors.RED_400)
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+
+        async def restore_service(svc_id: int):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.post(
+                        f"{BACKEND_URL}/services/{svc_id}/restore",
+                        headers=headers,
+                    )
+                if resp.status_code == 200:
+                    snack = ft.SnackBar(
+                        content=ft.Text("♻️ Услуга восстановлена"),
+                        bgcolor=ft.Colors.GREEN_400,
+                    )
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+                    await load_admin_dashboard()
+                else:
+                    try:
+                        detail = resp.json().get("detail", f"Ошибка {resp.status_code}")
+                    except Exception:
+                        detail = f"Ошибка {resp.status_code}"
+                    snack = ft.SnackBar(content=ft.Text(f"🔴 {detail}"), bgcolor=ft.Colors.RED_400)
+                    page.overlay.append(snack)
+                    snack.open = True
+                    page.update()
+            except Exception as ex:
+                snack = ft.SnackBar(content=ft.Text(f"❌ {ex}"), bgcolor=ft.Colors.RED_400)
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+
+        def _hidden_section(hidden):
+            """Секция скрытых услуг с кнопками восстановления."""
+            col = ft.Column(spacing=8)
+            if not hidden:
+                col.controls.append(
+                    ft.Text("Нет скрытых услуг", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+                )
+                return col
+
+            col.controls.append(
+                ft.Text(
+                    f"Скрытые ({len(hidden)})",
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                )
+            )
+            for s in hidden:
+                col.controls.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            s.get("name", "—"),
+                                            size=14,
+                                            weight=ft.FontWeight.BOLD,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                        ft.Text(
+                                            f"{s.get('price', 0)} руб. · {s.get('duration_minutes', 0)} мин",
+                                            size=12,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    expand=True,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.RESTORE,
+                                    icon_color=ft.Colors.GREEN_400,
+                                    tooltip="Восстановить",
+                                    on_click=lambda e, sid=s.get("id"): page.run_task(restore_service, sid),
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+                        padding=10,
+                        border_radius=8,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                    )
+                )
+            return col
+        
+        services_list = ft.Column(
+            spacing=10,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+        if not services:
+            services_list.controls.append(
+                ft.Text("Нет услуг", color=ft.Colors.ON_SURFACE_VARIANT, size=14)
+            )
+        else:
+            for s in services:
+                services_list.controls.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text(s.get("name", "—"), size=15, weight=ft.FontWeight.BOLD),
+                                        ft.Text(
+                                            f"{s.get('price', 0)} руб. · {s.get('duration_minutes', 0)} мин",
+                                            size=13,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    expand=True,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    icon_color=ft.Colors.RED_400,
+                                    tooltip="Удалить",
+                                    on_click=lambda e, sid=s.get("id"): page.run_task(delete_service, sid),
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                        padding=12,
+                        border_radius=8,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                    )
+                )
+
+        new_svc_name = ft.TextField(label="Название услуги", width=240)
+        new_svc_price = ft.TextField(label="Цена (руб.)", width=115)
+        new_svc_duration = ft.TextField(label="Длит. (мин)", width=115)
+        svc_status = ft.Text("", size=13)
+
+        services_panel = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Услуги", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
+                    ft.Container(height=10),
+                    new_svc_name,
+                    ft.Row([new_svc_price, new_svc_duration], spacing=10),
+                    ft.Button(
+                        content="Добавить услугу",
+                        icon=ft.Icons.ADD,
+                        on_click=create_service,
+                        width=240,
+                    ),
+                    svc_status,
+                    ft.Container(height=10),
+                    services_list,
+                    ft.Divider(height=20),
+                    _hidden_section(hidden_services),
+                ],
+                expand=True,
+            ),
+            padding=20,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border_radius=12,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            expand=True,
+        )
+
+        # --- Пользователи ---
+        users_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+        if not users:
+            users_list.controls.append(ft.Text("Нет пользователей", color=ft.Colors.ON_SURFACE_VARIANT))
+        else:
+            for u in users:
+                role = (u.get("role") or "client").lower()
+                role_color = (
+                    ft.Colors.PURPLE_400 if role == "admin"
+                    else ft.Colors.ORANGE_400 if role == "master"
+                    else ft.Colors.BLUE_200
+                )
+                users_list.controls.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text(u.get("full_name", "—"), size=14, weight=ft.FontWeight.BOLD),
+                                        ft.Text(u.get("email", "—"), size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ],
+                                    expand=True,
+                                ),
+                                ft.Text(role.upper(), size=12, color=role_color, weight=ft.FontWeight.BOLD),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                        padding=10,
+                        border_radius=8,
+                    )
+                )
+
+        users_panel = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Пользователи", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
+                    ft.Container(height=10),
+                    users_list,
+                ],
+                expand=True,
+            ),
+            padding=20,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border_radius=12,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            expand=True,
+        )
+
+        # --- Брони ---
+        bookings_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+        if not bookings:
+            bookings_list.controls.append(ft.Text("Нет броней", color=ft.Colors.ON_SURFACE_VARIANT))
+        else:
+            for b in bookings[:20]:
+                status = b.get("status", "—")
+                bookings_list.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text(f"📅 {b.get('start_time', '—')}", size=13, weight=ft.FontWeight.BOLD),
+                                ft.Text(
+                                    f"Клиент #{b.get('client_id')} · Услуга #{b.get('service_id')} · Мастер #{b.get('master_id')}",
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                ft.Text(f"Статус: {status}", size=12, color=ft.Colors.GREEN_400),
+                            ]
+                        ),
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                        padding=10,
+                        border_radius=8,
+                    )
+                )
+
+        bookings_panel = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Брони", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
+                    ft.Container(height=10),
+                    bookings_list,
+                ],
+                expand=True,
+            ),
+            padding=20,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border_radius=12,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            expand=True,
+        )
+
+        workspace = ft.Column(
+            [services_panel, users_panel, bookings_panel],
+            spacing=15,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+
+        main_layout = ft.Container(
+            padding=20,
+            content=ft.Column(
+                [header_row, ft.Divider(height=20), workspace],
+                expand=True,
+            ),
+            expand=True,
+        )
+
+        page.add(main_layout)
+        page.update()
+
     email_input = ft.TextField(
         label="Введите ваш Email",
         width=350,
@@ -343,7 +1015,7 @@ async def _main_impl(page: ft.Page):
     # Личный кабинет
     # ------------------------------------------------------------------
     async def load_dashboard():
-        nonlocal user_name
+        nonlocal user_name, user_role
         page.clean()
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.START
@@ -441,6 +1113,17 @@ async def _main_impl(page: ft.Page):
             if res_me.status_code == 200:
                 me = res_me.json()
                 user_name = me.get("full_name") or me.get("email", "")
+                role_raw = me.get("role", "client")
+                user_role = role_raw.split(".")[-1].lower() if "." in role_raw else role_raw.lower()
+            if user_role == "master":
+                await load_master_dashboard()
+                return
+
+            # Если админ — показываем админ-панель
+            if user_role == "admin":
+                await load_admin_dashboard()
+                return
+            
 
             # Токен истёк → на форму входа
             if res_bookings.status_code == 401:
@@ -506,7 +1189,7 @@ async def _main_impl(page: ft.Page):
             f"Привет, {user_name}!"
             if user_name
             else "Личный кабинет клиента"
-            )
+        )
         header_row = ft.Row(
             [
                 ft.Text(

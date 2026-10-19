@@ -11,7 +11,7 @@ from app.models import User, Service, Booking, UserRole
 from app.schemas import (UserCreate, UserResponse, ServiceCreate, PasswordChange, 
                         ServiceResponse,BookingCreate, 
                         BookingResponse, Token, 
-                        BookingStatusUpdate, UserUpdate)
+                        BookingStatusUpdate, UserUpdate, UserRoleUpdate)
 from app.auth import get_password_hash, verify_password, create_access_token, verify_access_token, oauth2_scheme
 
 
@@ -102,7 +102,7 @@ async def get_servises(
     max_price: Optional[int] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Service)
+    query = select(Service).where(Service.is_active == True)
 
     if min_price is not None:
         query = query.where(Service.price >= min_price)
@@ -113,6 +113,32 @@ async def get_servises(
     result = await db.execute(query)
     services = result.scalars().all()
     return services
+
+@app.get("/services/all", response_model=list[ServiceResponse])
+async def get_all_services(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"])),
+):
+    """Все услуги, включая скрытые (только для админа)."""
+    query = select(Service).order_by(Service.id)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+@app.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
+async def create_service(
+    service_data: ServiceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"])),
+):
+    new_service = Service(
+        name=service_data.name,
+        price=service_data.price,
+        duration_minutes=service_data.duration_minutes,
+    )
+    db.add(new_service)
+    await db.commit()
+    await db.refresh(new_service)
+    return new_service
 
 @app.get("/auth/me", response_model=UserResponse)
 async def get_current_user_principal(
@@ -256,19 +282,47 @@ async def get_my_bookings(
     return bookings
 
 # ЭНДПОИНТ ПОЛУЧЕНИЯ РАСПИСАНИЯ ДЛЯ ТЕКУЩЕГО МАСТЕРА
-@app.put("/bookings/master", response_model=list[BookingResponse])
+@app.get("/bookings/master", response_model=list[BookingResponse])
 async def get_master_booking(
-    limit: int =20,
+    limit: int =50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if "." in user_role:
+        user_role = user_role.split(".")[-1]
+    if user_role.lower() not in ("master", "admin"):
+        raise HTTPException(403, "Только мастера могут смотреть эту страницу")
+
      # Делаем SQL-запрос: "Выбери все записи из таблицы bookings, где master_id равен ID текущего вошедшего пользователя"
-    query = select(Booking).where(Booking.master_id == current_user.id).limit(limit).offset(offset)
+    query = (
+        select(Booking, User.full_name, Service.name)
+        .join(User, User.id == Booking.client_id)
+        .join(Service, Service.id == Booking.service_id)
+        .where(Booking.master_id == current_user.id)
+        .order_by(Booking.start_time)
+        .limit(limit)
+        .offset(offset)
+    )
     result = await db.execute(query)
 
-    bookings = result.scalars().all()
-    return bookings
+    rows = result.all()
+    return [
+        BookingResponse(
+                        id=b.id,
+            client_id=b.client_id,
+            master_id=b.master_id,
+            service_id=b.service_id,
+            start_time=b.start_time,
+            end_time=b.end_time,
+            status=b.status,
+            client_name=client_name,
+            service_name=service_name,
+            master_name=current_user.full_name,
+        )
+        for b, client_name, service_name in rows
+    ]
 
 @app.delete('/bookings/{booking_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_booking(
@@ -327,21 +381,39 @@ async def update_services (
 @app.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_service(
     service_id: int,
-    db: AsyncSession = Depends (get_db),
-    current_user: User = Depends(RoleChecker(["admin", "master"]))
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin", "master"])),
 ):
     query = select(Service).where(Service.id == service_id)
     result = await db.execute(query)
     service = result.scalar_one_or_none()
 
     if not service:
-        raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail='Не удалось найти указанную запись'
-                )
-    await db.delete(service)
+        raise HTTPException(404, "Услуга не найдена")
+
+    # Soft delete — просто скрываем
+    service.is_active = False
     await db.commit()
     return None
+
+@app.post("/services/{service_id}/restore", response_model=ServiceResponse)
+async def restore_service(
+    service_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"])),
+):
+    """Восстанавливает скрытую услугу (только для админа)."""
+    query = select(Service).where(Service.id == service_id)
+    result = await db.execute(query)
+    service = result.scalar_one_or_none()
+
+    if not service:
+        raise HTTPException(404, "Услуга не найдена")
+
+    service.is_active = True
+    await db.commit()
+    await db.refresh(service)
+    return service
 
 @app.get("/bookings/{booking_id}", response_model=BookingResponse)
 async def get_booking_details(
@@ -387,8 +459,33 @@ async def update_booking_status (
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Указанная бронь не найдена"
             )
-    booking.status = status_data.status
 
+    user_role = (
+        current_user.role.value
+        if hasattr(current_user.role, "value")
+        else str(current_user.role)
+    )
+
+    if "." in user_role:
+        user_role = user_role.split(".")[-1]
+    user_role = user_role.lower()
+
+    if user_role == "admin":
+        pass
+    elif user_role == 'master' and booking.master_id == current_user.id:
+        pass
+    elif (
+        user_role == "client"
+        and booking.client_id == current_user.id
+        and status_data.status == "cancelled"
+    ):
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав для смены статуса этой брони",
+        )
+    booking.status = status_data.status
     await db.commit()
     await db.refresh(booking)
 
@@ -407,3 +504,31 @@ async def get_all_bookins(
 
     return bookings
 
+@app.get("/users", response_model=list[UserResponse])
+async def get_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"])),
+):
+    query = select(User).order_by(User.id)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@app.patch("/users/{user_id}/role", response_model=UserResponse)
+async def update_user_role(
+    user_id: int,
+    role_data: UserRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RoleChecker(["admin"])),
+):
+    query = select(User).where(User.id == user_id)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(404, "Пользователь не найден")
+
+    user.role = role_data.role
+    await db.commit()
+    await db.refresh(user)
+    return user

@@ -31,6 +31,7 @@ class Service(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     duration_minutes: Mapped[int] = mapped_column(nullable=False)
     price: Mapped[int] = mapped_column(nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
 
 class Booking(Base):

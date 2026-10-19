@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
 from app.models import UserRole
 from datetime import datetime
+from typing import Optional
 
 # Базовые поля пользователя
 class UserBase(BaseModel):
@@ -34,6 +35,7 @@ class ServiceCreate(ServiceBase):
 
 class ServiceResponse(ServiceBase):
     id: int
+    is_active: bool = True
 
     class Config:
         from_attributes = True
@@ -50,8 +52,12 @@ class BookingCreate(BookingBase):
 
 class BookingResponse(BookingBase):
     id: int
+    client_id: int
     end_time: datetime
     status:str
+    client_name: Optional[str] = None
+    service_name: Optional[str] = None
+    master_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -71,3 +77,6 @@ class BookingStatusUpdate(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=6, max_length=50)
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
