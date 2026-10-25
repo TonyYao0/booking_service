@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/booking_db"
+    TELEGRAM_BOT_TOKEN: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env")
 
